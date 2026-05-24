@@ -1664,7 +1664,11 @@ void PresetUpdater::sync(std::string http_url, std::string language, std::string
         }
         if (p->cancel)
             return;
-        this->p->sync_plugins(http_url, plugin_version);
+        // privacy-fork P8: plugin sync freeze — REQUIRED.
+        // sync_plugins() re-downloads bambu_networking.dylib from Bambu's servers on every launch,
+        // overwriting the known-good validated dylib copied into Contents/Frameworks/.
+        // Suppressed unconditionally. The dylib is managed manually via bundle setup.
+        // this->p->sync_plugins(http_url, plugin_version);
         this->p->sync_printer_config(http_url);
         //if (p->cancel)
         //  return;
@@ -1754,7 +1758,11 @@ PresetUpdater::UpdateResult PresetUpdater::config_update(const Semver& old_slic3
         }
 
         //forced update
-        if (force_update)
+        // privacy-fork P4: preset force-update neutralization.
+        // The server's forced_update flag is ignored so profiles are never
+        // silently rewritten without user confirmation.  Voluntary updates
+        // (the MsgUpdateConfig dialog path below) continue to work normally.
+        if (false /* force_update — neutralized */)
         {
             BOOST_LOG_TRIVIAL(info) << format("[BBL Updater]:Force updating will start, size %1% ", updates.updates.size());
             bool ret = p->perform_updates(std::move(updates));

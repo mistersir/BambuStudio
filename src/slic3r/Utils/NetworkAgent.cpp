@@ -806,13 +806,12 @@ int NetworkAgent::set_queue_on_main_fn(QueueOnMainFn fn)
 
 int NetworkAgent::connect_server()
 {
-    int ret = 0;
-    if (network_agent && connect_server_ptr) {
-        ret = connect_server_ptr(network_agent);
-        if (ret)
-            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" error: network_agent=%1%, ret=%2%")%network_agent %ret;
-    }
-    return ret;
+    // privacy-fork P5: cloud relay disable.
+    // connect_server() initiates the Bambu cloud websocket relay session.
+    // Returning 0 (success no-op) prevents any cloud relay from being
+    // established while leaving LAN discovery, connect_printer(), and
+    // start_local_print() completely unaffected — they use separate paths.
+    return 0;
 }
 
 bool NetworkAgent::is_server_connected()
@@ -838,13 +837,13 @@ int NetworkAgent::refresh_connection()
 
 int NetworkAgent::start_subscribe(std::string module)
 {
-    int ret = 0;
-    if (network_agent && start_subscribe_ptr) {
-        ret = start_subscribe_ptr(network_agent, module);
-        if (ret)
-            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" error: network_agent=%1%, ret=%2%, module=%3%")%network_agent %ret %module ;
-    }
-    return ret;
+    // privacy-fork P6: cloud subscribe disable.
+    // start_subscribe() opens cloud MQTT topic subscriptions for push
+    // notifications from Bambu servers.  Returning 0 (success no-op)
+    // prevents cloud push while leaving local MQTT (connect_printer /
+    // start_local_print) and LAN discovery (start_discovery) untouched.
+    (void)module;
+    return 0;
 }
 
 int NetworkAgent::stop_subscribe(std::string module)
@@ -1477,24 +1476,32 @@ int NetworkAgent::modify_printer_name(std::string dev_id, std::string dev_name)
 
 int NetworkAgent::get_camera_url(std::string dev_id, std::function<void(std::string)> callback)
 {
-    int ret = 0;
-    if (network_agent && get_camera_url_ptr) {
-        ret = get_camera_url_ptr(network_agent, dev_id, callback);
-        if (ret)
-            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" error: network_agent=%1%, ret=%2%, dev_id=%3%") %network_agent %ret %BBLCrossTalk::Crosstalk_DevId(dev_id);
-    }
-    return ret;
+    // privacy-fork P10: IOTC/TUTK cloud camera disable.
+    // get_camera_url() is the sole entry point that causes the closed binary
+    // to initialize its IOTC session.  Once initialized, an internal
+    // IOTC_Check_Session_Status timer fires, finds no cloud relay (P5 killed
+    // connect_server), and calls IOTC_DeInitialize — which tears down shared
+    // internal state and destabilizes local MQTT connections.
+    // Returning 0 without invoking the callback prevents IOTC from ever
+    // initializing.  Cloud camera (TUTK/Agora) becomes unavailable, which is
+    // expected.  Local RTSP camera is unaffected: it uses a separate branch
+    // in MediaPlayCtrl::Play() that constructs bambu:///local/ / rtsps / rtsp
+    // URLs from printer-side MQTT data and returns before reaching this call.
+    (void)dev_id;
+    (void)callback;
+    return 0;
 }
 
 int NetworkAgent::get_camera_url_for_golive(std::string dev_id, std::string sdev_id, std::function<void(std::string)> callback)
 {
-    int ret = 0;
-    if (network_agent && get_camera_url_for_golive_ptr) {
-        ret = get_camera_url_for_golive_ptr(network_agent, dev_id, sdev_id, callback);
-        if (ret)
-            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" error: network_agent=%1%, ret=%2%, dev_id=%3%") %network_agent %ret %BBLCrossTalk::Crosstalk_DevId(dev_id);
-    }
-    return ret;
+    // privacy-fork P10: IOTC/TUTK cloud camera disable (go-live variant).
+    // Same reasoning as get_camera_url() above.  get_camera_url_for_golive()
+    // is the go-live/livestream path — also IOTC-backed, also cloud-only.
+    // Local camera is unaffected.
+    (void)dev_id;
+    (void)sdev_id;
+    (void)callback;
+    return 0;
 }
 
 int NetworkAgent::get_design_staffpick(int offset, int limit, std::function<void(std::string)> callback)
@@ -1619,10 +1626,16 @@ int NetworkAgent::get_my_token(std::string ticket, unsigned int* http_code, std:
 
 int NetworkAgent::track_enable(bool enable)
 {
-    enable_track = enable;
+    // privacy-fork P1: telemetry master disable.
+    // Unconditionally keep tracking off regardless of the caller's request
+    // (e.g. check_track_enable() firing after login).  enable_track stays
+    // false and the closed library is also told false, so track_event /
+    // track_header / track_update_property are all no-ops at both layers.
+    (void)enable;
+    enable_track = false;
     int ret = 0;
     if (network_agent && track_enable_ptr) {
-        ret = track_enable_ptr(network_agent, enable);
+        ret = track_enable_ptr(network_agent, false);
         if (ret)
             BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format("error network_agnet=%1%, ret = %2%") % network_agent % ret;
     }

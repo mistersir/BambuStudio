@@ -1,0 +1,17 @@
+diff --git a/src/slic3r/Utils/PresetUpdater.cpp b/src/slic3r/Utils/PresetUpdater.cpp
+index daff8cee9..c824ad4d6 100644
+--- a/src/slic3r/Utils/PresetUpdater.cpp
++++ b/src/slic3r/Utils/PresetUpdater.cpp
+@@ -1664,7 +1664,11 @@ void PresetUpdater::sync(std::string http_url, std::string language, std::string
+         }
+         if (p->cancel)
+             return;
+-        this->p->sync_plugins(http_url, plugin_version);
++        // privacy-fork P8: plugin sync freeze — REQUIRED.
++        // sync_plugins() re-downloads bambu_networking.dylib from Bambu's servers on every launch,
++        // overwriting the known-good validated dylib copied into Contents/Frameworks/.
++        // Suppressed unconditionally. The dylib is managed manually via bundle setup.
++        // this->p->sync_plugins(http_url, plugin_version);
+         this->p->sync_printer_config(http_url);
+         //if (p->cancel)
+         //  return;

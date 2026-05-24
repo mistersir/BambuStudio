@@ -1338,7 +1338,11 @@ void GUI_App::post_init()
             this->preset_updater->sync(http_url, language, network_ver, sys_preset ? preset_bundle : nullptr);
 
             //BBS: check new version
-            this->check_new_version();
+            // privacy-fork P7: outbound version check suppression.
+            // check_new_version() polls Bambu's update server on every startup.
+            // P3 already neutralizes the dangerous outcome (force_upgrade dialog),
+            // but this eliminates the outbound request entirely.
+            // this->check_new_version();
             //BBS: check privacy version
             if (is_user_login()) {
                 this->check_privacy_version(0);
@@ -2048,25 +2052,20 @@ void GUI_App::init_networking_callbacks()
             return;
             }
             if (return_code == 5) {
-                GUI::wxGetApp().CallAfter([this] {
-                    this->request_user_logout();
-                    MessageDialog msg_dlg(nullptr, _L("Login information expired. Please login again."), "", wxAPPLY | wxOK);
-                    if (msg_dlg.ShowModal() == wxOK) {
-                        return;
-                    }
-                });
+                // privacy-fork P11b: server-connected return_code==5 dialog suppression.
+                // return_code 5 = MQTT CONNACK "not authorised" (login token expired).
+                // Since P5 no-ops connect_server(), this callback should never fire via
+                // a live cloud session. Defensively suppress the dialog and logout call
+                // to prevent any residual cloud state from showing unwanted UI.
                 return;
             }
             if (return_code < 0) { //#define MQTTASYNC_SUCCESS 0
-                GUI::wxGetApp().CallAfter([this] {
-                    static bool is_showing = false;
-                    if (is_showing) return;
-                    is_showing = true;
-                    BOOST_LOG_TRIVIAL(trace) << "static: server connection failed";
-                    MessageDialog msg_dlg(nullptr, _L("Failed to connect to the cloud device server. Please check your network and firewall."), "", wxOK);
-                    msg_dlg.ShowModal();
-                    is_showing = false;
-                });
+                // privacy-fork: cloud-connect-failure dialog suppression.
+                // We intentionally do not connect to the cloud server (P5).
+                // Suppress the "Failed to connect to the cloud device server"
+                // dialog — it is expected and not actionable in LAN-only mode.
+                // If the closed binary's internal reconnect loop fires this
+                // callback, it should be silently swallowed.
                 return;
             }
             GUI::wxGetApp().CallAfter([this] {
@@ -4464,18 +4463,31 @@ void GUI_App::request_login(bool show_user_info)
 
 void GUI_App::get_login_info()
 {
-    if (m_agent) {
-        if (m_agent->is_user_login()) {
-            std::string login_cmd = m_agent->build_login_cmd();
-            wxString strJS = wxString::Format("window.postMessage(%s)", login_cmd);
-            GUI::wxGetApp().run_script_left(strJS);
-        }
-        else {
-            m_agent->user_logout();
-            std::string logout_cmd = m_agent->build_logout_cmd();
-            wxString strJS = wxString::Format("window.postMessage(%s)", logout_cmd);
-            GUI::wxGetApp().run_script_left(strJS);
-        }
+    // privacy-fork P9: null/uninitialised guard.
+    // WebViewPanel fires a repeating timer that calls this function every few
+    // seconds.  build_login_cmd() and build_logout_cmd() (inside the closed
+    // bambu_networking binary) dereference an internal cloud session handle
+    // that is only valid after a successful connect_server() handshake.
+    // When that handshake has not occurred (no cloud relay, not logged in)
+    // both functions SIGSEGV.
+    //
+    // Guard: m_agent must exist, and the agent must have an active server
+    // connection before we let any build_*_cmd() call reach the binary.
+    // is_server_connected() is a safe wrapper that returns false when the
+    // internal network_agent pointer or function pointer is null.
+    if (!m_agent || !m_agent->is_server_connected())
+        return;
+
+    if (m_agent->is_user_login()) {
+        std::string login_cmd = m_agent->build_login_cmd();
+        wxString strJS = wxString::Format("window.postMessage(%s)", login_cmd);
+        GUI::wxGetApp().run_script_left(strJS);
+    }
+    else {
+        m_agent->user_logout();
+        std::string logout_cmd = m_agent->build_logout_cmd();
+        wxString strJS = wxString::Format("window.postMessage(%s)", logout_cmd);
+        GUI::wxGetApp().run_script_left(strJS);
     }
 }
 
@@ -5099,18 +5111,11 @@ void GUI_App::on_http_error(wxCommandEvent &evt)
 
     // request login
     if (status == 401) {
-        if (m_agent) {
-            if (m_agent->is_user_login()) {
-                this->request_user_logout();
-                if (!m_show_error_msgdlg) {
-                    MessageDialog msg_dlg(nullptr, _L("Login information expired. Please login again."), "", wxAPPLY | wxOK);
-                    m_show_error_msgdlg = true;
-                    auto modal_result = msg_dlg.ShowModal();
-                    m_show_error_msgdlg = false;
-                    return;
-                }
-            }
-        }
+        // privacy-fork P11a: HTTP 401 login-expiry dialog suppression.
+        // We are intentionally not logged in to Bambu cloud (P5 killed
+        // connect_server). 401 responses are expected and should be
+        // silently swallowed. Showing the dialog and calling
+        // request_user_logout() serves no purpose in LAN-only mode.
         return;
     }
 }
@@ -5279,7 +5284,11 @@ void GUI_App::check_update(bool show_tips, int by_user)
     auto remote_version = Semver::parse(version_info.version_str);
     if (curr_version && remote_version && (*remote_version > *curr_version)) {
         wxGetApp().app_config->set("app", "cloud_version", version_info.version_str);
-        if (version_info.force_upgrade) {
+        // privacy-fork P3: slicer force-upgrade neutralization.
+        // The server's force_update flag is treated as always false so the app
+        // can never force-close itself or prevent the user from continuing.
+        // Voluntary update notifications (request_new_version) still fire.
+        if (false /* version_info.force_upgrade — neutralized */) {
             wxGetApp().app_config->set_bool("force_upgrade", version_info.force_upgrade);
             wxGetApp().app_config->set("upgrade", "force_upgrade", true);
             wxGetApp().app_config->set("upgrade", "description", version_info.description);
@@ -8017,6 +8026,12 @@ bool GUI_App::open_browser_with_warning_dialog(const wxString& url, int flags/* 
 
 void GUI_App::report_consent_common(bool agree, std::string scene, std::string formID)
 {
+    // privacy-fork P2: consent reporting disable.
+    // Suppress all outbound HTTP POSTs to Bambu's consent server.
+    // Fires on startup (post_init) and on every privacy dialog confirm/cancel.
+    (void)agree; (void)scene; (void)formID;
+    return;
+
     json consentBody;
     json formItemArray = json::array();
     json formItem;

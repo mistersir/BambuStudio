@@ -1,0 +1,45 @@
+diff --git a/src/slic3r/Utils/NetworkAgent.cpp b/src/slic3r/Utils/NetworkAgent.cpp
+index 564943799..8e506f1d9 100644
+--- a/src/slic3r/Utils/NetworkAgent.cpp
++++ b/src/slic3r/Utils/NetworkAgent.cpp
+@@ -806,13 +806,12 @@ int NetworkAgent::set_queue_on_main_fn(QueueOnMainFn fn)
+ 
+ int NetworkAgent::connect_server()
+ {
+-    int ret = 0;
+-    if (network_agent && connect_server_ptr) {
+-        ret = connect_server_ptr(network_agent);
+-        if (ret)
+-            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" error: network_agent=%1%, ret=%2%")%network_agent %ret;
+-    }
+-    return ret;
++    // privacy-fork P5: cloud relay disable.
++    // connect_server() initiates the Bambu cloud websocket relay session.
++    // Returning 0 (success no-op) prevents any cloud relay from being
++    // established while leaving LAN discovery, connect_printer(), and
++    // start_local_print() completely unaffected — they use separate paths.
++    return 0;
+ }
+ 
+ bool NetworkAgent::is_server_connected()
+@@ -838,13 +837,13 @@ int NetworkAgent::refresh_connection()
+ 
+ int NetworkAgent::start_subscribe(std::string module)
+ {
+-    int ret = 0;
+-    if (network_agent && start_subscribe_ptr) {
+-        ret = start_subscribe_ptr(network_agent, module);
+-        if (ret)
+-            BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(" error: network_agent=%1%, ret=%2%, module=%3%")%network_agent %ret %module ;
+-    }
+-    return ret;
++    // privacy-fork P6: cloud subscribe disable.
++    // start_subscribe() opens cloud MQTT topic subscriptions for push
++    // notifications from Bambu servers.  Returning 0 (success no-op)
++    // prevents cloud push while leaving local MQTT (connect_printer /
++    // start_local_print) and LAN discovery (start_discovery) untouched.
++    (void)module;
++    return 0;
+ }
+ 
+ int NetworkAgent::stop_subscribe(std::string module)

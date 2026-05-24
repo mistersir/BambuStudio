@@ -1,0 +1,23 @@
+diff --git a/src/slic3r/Utils/NetworkAgent.cpp b/src/slic3r/Utils/NetworkAgent.cpp
+index 564943799..df5f7fc7b 100644
+--- a/src/slic3r/Utils/NetworkAgent.cpp
++++ b/src/slic3r/Utils/NetworkAgent.cpp
+@@ -1619,10 +1619,16 @@ int NetworkAgent::get_my_token(std::string ticket, unsigned int* http_code, std:
+ 
+ int NetworkAgent::track_enable(bool enable)
+ {
+-    enable_track = enable;
++    // privacy-fork P1: telemetry master disable.
++    // Unconditionally keep tracking off regardless of the caller's request
++    // (e.g. check_track_enable() firing after login).  enable_track stays
++    // false and the closed library is also told false, so track_event /
++    // track_header / track_update_property are all no-ops at both layers.
++    (void)enable;
++    enable_track = false;
+     int ret = 0;
+     if (network_agent && track_enable_ptr) {
+-        ret = track_enable_ptr(network_agent, enable);
++        ret = track_enable_ptr(network_agent, false);
+         if (ret)
+             BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format("error network_agnet=%1%, ret = %2%") % network_agent % ret;
+     }
