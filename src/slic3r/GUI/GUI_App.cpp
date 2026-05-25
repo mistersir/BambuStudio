@@ -1983,20 +1983,9 @@ int GUI_App::updating_bambu_networking()
 
 bool GUI_App::check_networking_version()
 {
-    std::string network_ver = Slic3r::NetworkAgent::get_version();
-    if (!network_ver.empty()) {
-        BOOST_LOG_TRIVIAL(info) << "get_network_agent_version=" << network_ver;
-    }
-    std::string studio_ver = SLIC3R_VERSION;
-    if (network_ver.length() >= 8) {
-        if (network_ver.substr(0,8) == studio_ver.substr(0,8)) {
-            m_networking_compatible = true;
-            return true;
-        }
-    }
-
-    m_networking_compatible = false;
-    return false;
+    // P13: skip version check — always treat plugin as compatible
+    m_networking_compatible = true;
+    return true;
 }
 
 bool GUI_App::is_compatibility_version()

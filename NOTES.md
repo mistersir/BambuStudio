@@ -21,6 +21,7 @@ Track here: build failures, telemetry locations, subsystem findings, successful 
 | P11a | `src/slic3r/GUI/GUI_App.cpp` | `on_http_error()` HTTP 401 dialog | ✅ Applied | (in GUI_App.cpp) |
 | P11b | `src/slic3r/GUI/GUI_App.cpp` | `init_networking_callbacks()` return_code==5 dialog | ✅ Applied | (in GUI_App.cpp) |
 | — | `src/slic3r/GUI/GUI_App.cpp` | `init_networking_callbacks()` return_code<0 dialog | ✅ Applied | (in GUI_App.cpp — cloud-connect-failure suppression) |
+| P13 | `src/slic3r/GUI/GUI_App.cpp` | `check_networking_version()` | ✅ Applied | (in GUI_App.cpp) |
 
 **ALL PATCHES APPLIED. Build session complete.**
 
@@ -454,6 +455,24 @@ handshake has occurred. Returns silently when false — the WebView timer contin
 
 LAN risk: NONE. `get_login_info()` is cloud login state only; no LAN path passes through it.
 
+### P13 — Networking version check bypass ✅
+```
+File: src/slic3r/GUI/GUI_App.cpp
+Function: GUI_App::check_networking_version()
+Change: Replace entire body with m_networking_compatible = true; return true;
+```
+`check_networking_version()` compares the first 8 characters of the slicer's version string
+against the version embedded in `bambu_networking.dylib`. If they don't match, it sets
+`m_networking_compatible = false`, which gates the network agent initialization and causes
+the app to show a "plugin incompatible" error or silently skip loading the dylib.
+
+When building from source against a dylib sourced from a different retail release, the
+version strings will always diverge. P13 unconditionally sets `m_networking_compatible = true`
+so the version check never blocks plugin load regardless of dylib provenance.
+
+LAN risk: NONE. `m_networking_compatible = true` is also what the check sets on a successful
+version match — we're just always taking the passing branch.
+
 ---
 
 ## FILE REFERENCE
@@ -750,8 +769,65 @@ reconnect handles it.
 ```
 scripts/apply-privacy-patches.sh   — apply patches/core/*.patch in order
 scripts/build-arm64.sh             — full build + bundle fix sequence
+scripts/bundle-fix.sh              — post-build bundle assembly only (faster iteration)
 scripts/check-patch-targets.sh     — verify patch targets before rebase
 ```
+
+---
+
+## APP BUNDLE ASSEMBLY
+
+The cmake build produces a raw binary at `build/arm64/src/BambuStudio`. It does NOT produce
+a complete `.app` bundle. The bundle must be assembled manually after each build.
+
+### Required bundle contents
+
+```
+BambuStudio.app/
+  Contents/
+    Info.plist                      ← copy from /Applications/BambuStudio.app/Contents/Info.plist
+    MacOS/
+      BambuStudio                   ← built binary from build/arm64/src/BambuStudio
+    Resources/                      ← rsync from repo resources/
+    Frameworks/
+      bambu_networking.dylib        ← ~/Library/Application Support/BambuStudio/plugins/libbambu_networking.dylib (renamed)
+      libBambuSource.dylib          ← ~/Library/Application Support/BambuStudio/plugins/libBambuSource.dylib
+      liblive555.dylib              ← ~/Library/Application Support/BambuStudio/plugins/liblive555.dylib
+```
+
+### Quick assembly (after every rebuild)
+
+```bash
+# Step 1: rebuild slicer
+cmake --build /path/to/BambuStudio/build/arm64 --parallel
+
+# Step 2: assemble bundle + codesign
+cd /path/to/BambuStudio
+bash scripts/bundle-fix.sh
+```
+
+`bundle-fix.sh` handles all six steps: binary copy, Resources rsync, Info.plist copy,
+Frameworks dylib copy, `xattr -cr`, and `codesign --force --deep --sign -`.
+
+### Info.plist source
+
+Always copy from the installed retail app (`/Applications/BambuStudio.app/Contents/Info.plist`).
+The build tree generates its own `Info.plist` at `build/arm64/src/Info.plist` but it may
+have incorrect bundle identifiers or version strings that cause Gatekeeper issues.
+
+### Codesigning
+
+Ad-hoc signing (`codesign --force --deep --sign -`) is sufficient for local use.
+The `--deep` flag signs all nested binaries and dylibs in Frameworks/. Without this,
+macOS will refuse to load unsigned dylibs on Apple Silicon.
+
+### P13 context
+
+`check_networking_version()` gates the entire network plugin load. Before P13, any version
+mismatch between the slicer binary and `bambu_networking.dylib` would silently disable all
+networking (including LAN). P13 bypasses this check so any compatible dylib version loads.
+This is essential when the dylib is sourced from a different retail release than the current
+build.
 
 ### VALIDATION.md
 
