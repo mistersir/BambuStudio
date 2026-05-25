@@ -21,7 +21,7 @@
 #
 
 project(BambuStudio-deps)
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.5)
 
 include(ExternalProject)
 include(ProcessorCount)
@@ -148,6 +148,7 @@ function(bambustudio_add_cmake_project projectname)
             ${_cmake_osx_arch}
             "${_configs_line}"
             ${DEP_CMAKE_OPTS}
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
             ${P_ARGS_CMAKE_ARGS}
        ${P_ARGS_UNPARSED_ARGUMENTS}
        BUILD_COMMAND ${CMAKE_COMMAND} --build . --config Release -- ${_build_j}
